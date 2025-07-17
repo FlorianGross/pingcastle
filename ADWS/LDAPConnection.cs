@@ -10,9 +10,12 @@ using System.DirectoryServices;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Permissions;
+using System.Security.Principal;
+using PingCastle.UserInterface;
 
 namespace PingCastle.ADWS
 {
@@ -25,6 +28,7 @@ namespace PingCastle.ADWS
             Credential = credential;
         }
         public static int PageSize = 500;
+        private readonly IUserInterface _userIo = UserInterfaceFactory.GetUserInterface();
 
         public override void Enumerate(string distinguishedName, string filter, string[] properties, WorkOnReturnedObjectByADWS callback, string scope)
         {
@@ -93,17 +97,15 @@ namespace PingCastle.ADWS
                     {
                         if (ex.ErrorCode == -2147024662 && ex.ExtendedError == 234)
                         {
-                            Console.ForegroundColor = ConsoleColor.Yellow;
-                            Console.WriteLine("[" + DateTime.Now.ToLongTimeString() + "] Warning: received \"Calling GetNextRow can potentially return more results\"");
+                            _userIo.DisplayWarning("[" + DateTime.Now.ToLongTimeString() + "] Warning: received \"Calling GetNextRow can potentially return more results\"");
                             Trace.WriteLine("[" + DateTime.Now.ToLongTimeString() + "] Warning: received \"Calling GetNextRow can potentially return more results\"");
-                            Console.ResetColor();
                             if (!iterator.MoveNext())
                             {
-                                Console.WriteLine("[" + DateTime.Now.ToLongTimeString() + "] No more results");
+                                _userIo.DisplayMessage("[" + DateTime.Now.ToLongTimeString() + "] No more results");
                                 Trace.WriteLine("[" + DateTime.Now.ToLongTimeString() + "] No more results");
                                 break;
                             }
-                            Console.WriteLine("[" + DateTime.Now.ToLongTimeString() + "] More results found");
+                            _userIo.DisplayMessage("[" + DateTime.Now.ToLongTimeString() + "] More results found");
                             Trace.WriteLine("[" + DateTime.Now.ToLongTimeString() + "] More results found");
                         }
                         else
@@ -120,7 +122,7 @@ namespace PingCastle.ADWS
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("Warning: unable to process element (" + ex.Message + ")\r\n" + sr.Path);
+                        _userIo.DisplayWarning("Warning: unable to process element (" + ex.Message + ")\r\n" + sr.Path);
                         Trace.WriteLine("Warning: unable to process element\r\n" + sr.Path);
                         Trace.WriteLine("Exception: " + ex.ToString());
                     }
@@ -227,10 +229,10 @@ namespace PingCastle.ADWS
                             Trace.WriteLine("SSLPolicyErrors: " + sslPolicyErrors);
                             if (sslPolicyErrors != SslPolicyErrors.None)
                             {
-                                Console.WriteLine("While testing the LDAPS certificate, PingCastle found the following error: " + sslPolicyErrors);
-                                Console.WriteLine("The certificate is untrusted and Windows prohibits PingCastle to connect to it");
-                                Console.WriteLine("Certificate:  " + CACert.Subject);
-                                Console.WriteLine("Expires: " + CACert.GetExpirationDateString());
+                                _userIo.DisplayMessage("While testing the LDAPS certificate, PingCastle found the following error: " + sslPolicyErrors);
+                                _userIo.DisplayMessage("The certificate is untrusted and Windows prohibits PingCastle to connect to it");
+                                _userIo.DisplayMessage("Certificate:  " + CACert.Subject);
+                                _userIo.DisplayMessage("Expires: " + CACert.GetExpirationDateString());
                             }
                             return true; 
                         }
@@ -298,12 +300,7 @@ namespace PingCastle.ADWS
                     Server = DomainLocator.GetDC(Server, false, true);
             }
         }
-
-        public override string ConvertSIDToName(string sidstring, out string referencedDomain)
-        {
-            return NativeMethods.ConvertSIDToNameWithWindowsAPI(sidstring, Server, out referencedDomain);
-        }
-
+     
         public override System.Security.Principal.SecurityIdentifier ConvertNameToSID(string nameToResolve)
         {
             return NativeMethods.GetSidFromDomainNameWithWindowsAPI(Server, nameToResolve);
