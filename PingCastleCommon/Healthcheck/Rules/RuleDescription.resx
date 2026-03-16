@@ -6234,6 +6234,52 @@ The detection triggers when specific high-risk permissions are assigned to OUs w
     <value>See the Certificate Authorities table in the PKI section of the report</value>
   </data>
 
+  <!-- A-CertESC13OIDGroupLink: ESC13 – OID Group Link grants group membership via certificate -->
+  <data name="A_CertESC13OIDGroupLink_Title" xml:space="preserve">
+    <value>Certificate Template Grants Group Membership via OID Group Link (ESC13)</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Description" xml:space="preserve">
+    <value>One or more certificate templates have an issuance policy linked to a security group via the msDS-OIDToGroupLink attribute. A low-privileged user who can enroll on such a template receives a Kerberos ticket that includes the linked group's SID, effectively granting group membership at logon time.</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_TechnicalExplanation" xml:space="preserve">
+    <value>When a certificate template's msPKI-Certificate-Policy references an OID object that has msDS-OIDToGroupLink set to a security group, the KDC adds the group's SID to the Kerberos PAC of the authenticating user. This means any user who can enroll on the template inherits the group's permissions for the duration of their Kerberos ticket. If the linked group holds elevated privileges (e.g. Domain Admins, Administrators), this is a direct privilege escalation path requiring only certificate enrollment rights. The attack does not leave traces on the user account itself — only in the certificate and Kerberos ticket. Reference: ESC13 (SpecterOps, Certified Pre-Owned extension research).</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Solution" xml:space="preserve">
+    <value>Review the OID group links on all certificate templates. Remove the msDS-OIDToGroupLink attribute from OID objects linked to templates that permit low-privileged enrollment, or restrict enrollment on those templates to only the users who should have membership in the linked group. Use Get-ADObject to audit msDS-OIDToGroupLink values: Get-ADObject -Filter {msDS-OIDToGroupLink -like "*"} -Properties msDS-OIDToGroupLink.</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Rationale" xml:space="preserve">
+    <value>{count} certificate template(s) grant elevated group membership via OID group link to low-privileged enrollees (ESC13)</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Detail" xml:space="preserve">
+    <value>Template: {0} - Linked Group: {1}</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Templates table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertESC14WeakAltSecMapping: ESC14 – Weak explicit certificate mapping via altSecurityIdentities -->
+  <data name="A_CertESC14WeakAltSecMapping_Title" xml:space="preserve">
+    <value>Accounts Use Weak Certificate-to-Account Mapping (ESC14)</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Description" xml:space="preserve">
+    <value>One or more AD accounts have explicit certificate mappings (altSecurityIdentities) that use weak mapping types such as RFC822 (email), UPN, or Subject-only. These mapping types rely on certificate fields that an attacker can influence, potentially allowing authentication as the mapped account.</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_TechnicalExplanation" xml:space="preserve">
+    <value>The altSecurityIdentities attribute on AD user or computer objects can hold explicit certificate-to-account mappings used for PKINIT authentication. Weak mapping types are exploitable as follows: RFC822 (X509RFC822:email@domain) — an attacker with write access to the victim's mail attribute can set it to match a certificate they control; UPN (X509SubjectAltSecurityIdentity:upn@domain) — an attacker with write access to userPrincipalName can redirect authentication; SubjectOnly (X509SubjectOnly:CN=...) — a DN-only mapping without issuer binding can be satisfied by any CA. The risk is highest when privileged accounts (Domain Admins, service accounts) use these weak mappings. Reference: ESC14 (SpecterOps).</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Solution" xml:space="preserve">
+    <value>Replace weak mappings with strong explicit mappings that include the certificate's issuer and serial number or SHA1 thumbprint (X509IssuerSerialNumber or X509SHA1PublicKey). Audit existing mappings with: Get-ADUser -Filter {altSecurityIdentities -like "*"} -Properties altSecurityIdentities. Remove RFC822, UPN-only, and SubjectOnly mappings from privileged accounts as a priority. Consider enforcing certificate binding enforcement mode on DCs (StrongCertificateBindingEnforcement = 2).</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Rationale" xml:space="preserve">
+    <value>{count} account(s) have weak explicit certificate mappings that could be exploited for authentication (ESC14)</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Detail" xml:space="preserve">
+    <value>Account: {0} - Mapping type: {1} - Privilege level: {2} - Value: {3}</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_ReportLocation" xml:space="preserve">
+    <value>See the Accounts section of the report for altSecurityIdentities details</value>
+  </data>
+
   <!-- A-CertESC5NTAuth: ESC5 – Low-privileged write on NTAuthCertificates object -->
   <data name="A_CertESC5NTAuth_Title" xml:space="preserve">
     <value>Low-Privileged Principal Can Write to NTAuthCertificates AD Object (ESC5)</value>
