@@ -219,6 +219,7 @@ namespace PingCastle.Healthcheck
                 risk.Details = rule.Details;
                 risk.ExtraDetails = rule.ExtraDetails;
                 healthcheckData.RiskRules.Add(risk);
+                DisplayAdvancement($"- [{rule.RiskId}] {rule.Title} ({rule.Points} pts)");
             }
             DisplayAdvancement("Export completed");
             healthcheckData.SetIntegrity();
