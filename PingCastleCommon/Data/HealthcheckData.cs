@@ -90,6 +90,42 @@ namespace PingCastle.Healthcheck
         public string Owner { get; set; }
 
         public List<HealthCheckCertificateTemplateRights> Rights { get; set; }
+
+        /// <summary>
+        /// ESC13: OID values from msPKI-Certificate-Policy that are linked to a security group
+        /// via msDS-OIDToGroupLink. A non-null value means at least one OID in this template
+        /// is mapped to a group, potentially granting membership implicitly.
+        /// </summary>
+        [DefaultValue(null)]
+        public string LinkedOIDGroup { get; set; }
+
+        /// <summary>
+        /// List of issuance policy OIDs (msPKI-Certificate-Policy) on this template.
+        /// </summary>
+        public List<string> IssuancePolicies { get; set; }
+
+        /// <summary>
+        /// CT_FLAG_EXPORTABLE_KEY (msPKI-Private-Key-Flag bit 0x10): the private key generated
+        /// for this template can be exported from the certificate store. An attacker who can
+        /// enroll may exfiltrate the private key.
+        /// </summary>
+        [XmlAttribute]
+        public bool ExportableKey { get; set; }
+
+        /// <summary>
+        /// CT_FLAG_REQUIRE_PRIVATE_KEY_ARCHIVAL (msPKI-Private-Key-Flag bit 0x4000): the CA
+        /// is configured to archive the private key via a Key Recovery Agent (KRA). A compromised
+        /// KRA can decrypt all archived keys.
+        /// </summary>
+        [XmlAttribute]
+        public bool RequiresKeyArchival { get; set; }
+
+        /// <summary>
+        /// Maximum certificate validity period in days (parsed from pKIMaximumValidity).
+        /// 0 means the attribute was not collected or could not be parsed.
+        /// </summary>
+        [XmlAttribute]
+        public int ValidityPeriodDays { get; set; }
     }
 
     public class HealthCheckCertificateTemplateRights
@@ -98,6 +134,57 @@ namespace PingCastle.Healthcheck
         public string Account { get; set; }
         [XmlAttribute]
         public List<string> Rights { get; set; }
+    }
+
+    /// <summary>
+    /// ESC14: An account uses a weak explicit certificate-to-account mapping
+    /// via the altSecurityIdentities attribute. Weak mapping types (RFC822, UPN,
+    /// SubjectOnly) can be spoofed by an attacker who controls the respective
+    /// attribute on another account.
+    /// </summary>
+    [DebuggerDisplay("{AccountName} ({MappingType})")]
+    public class HealthcheckWeakAltSecurityIdentityData
+    {
+        [XmlAttribute]
+        public string AccountName { get; set; }
+
+        [XmlAttribute]
+        public string DistinguishedName { get; set; }
+
+        /// <summary>Weak mapping type, e.g. "RFC822", "UPN", "SubjectOnly".</summary>
+        [XmlAttribute]
+        public string MappingType { get; set; }
+
+        /// <summary>The raw altSecurityIdentities value that triggered this finding.</summary>
+        [XmlAttribute]
+        public string MappingValue { get; set; }
+
+        /// <summary>True if the account is a member of a privileged group.</summary>
+        [XmlAttribute]
+        public bool IsPrivileged { get; set; }
+    }
+
+    /// <summary>
+    /// Shadow Credentials: an account that has one or more msDS-KeyCredentialLink entries.
+    /// An attacker with write access to this attribute can add a forged device credential and then
+    /// authenticate as the account via PKINIT (Windows Hello for Business) without knowing the password.
+    /// </summary>
+    [DebuggerDisplay("{AccountName}")]
+    public class HealthcheckShadowCredentialData
+    {
+        [XmlAttribute]
+        public string AccountName { get; set; }
+
+        [XmlAttribute]
+        public string DistinguishedName { get; set; }
+
+        /// <summary>True if the account belongs to a privileged group.</summary>
+        [XmlAttribute]
+        public bool IsPrivileged { get; set; }
+
+        /// <summary>Number of msDS-KeyCredentialLink entries on the account.</summary>
+        [XmlAttribute]
+        public int CredentialCount { get; set; }
     }
 
     public class HealthCheckCertificateAuthorityData
@@ -124,6 +211,49 @@ namespace PingCastle.Healthcheck
        
         [XmlAttribute]
         public string EnrollmentRestrictions { get; set; }
+
+        /// <summary>
+        /// ESC6: CA has EDITF_ATTRIBUTESUBJECTALTNAME2 flag set, allowing any user to include
+        /// a Subject Alternative Name (SAN) in certificate requests on any template.
+        /// </summary>
+        [DefaultValue(null)]
+        public bool? HasSubjectAltNameFlag { get; set; }
+
+        /// <summary>
+        /// ESC11: Whether the IF_ENFORCEENCRYPTICERTREQUEST flag (0x200) is set in InterfaceFlags.
+        /// When false the ICertRequest DCOM interface accepts cleartext/unauthenticated requests,
+        /// enabling NTLM relay attacks to the CA's RPC endpoint.
+        /// Null = flag could not be read (non-privileged scan).
+        /// </summary>
+        [DefaultValue(null)]
+        public bool? HasEnforceEncryptICertRequest { get; set; }
+
+        /// <summary>
+        /// ESC5: A low-privileged principal has write permissions on the CA's
+        /// pKIEnrollmentService AD object, allowing template list manipulation or object takeover.
+        /// </summary>
+        [DefaultValue(null)]
+        public bool? VulnerableEnrollmentServiceACL { get; set; }
+
+        /// <summary>
+        /// ESC5: Names of low-privileged principals with write rights on the enrollment service object.
+        /// </summary>
+        public List<string> LowPrivilegedEnrollmentServiceWritePrincipals { get; set; }
+
+        /// <summary>
+        /// AuditFilter registry DWORD from the CA configuration.
+        /// A value of 0 means no events are audited on this CA; all CA actions go unlogged.
+        /// Null means the value could not be read (non-privileged scan).
+        /// </summary>
+        [DefaultValue(null)]
+        public int? AuditFilter { get; set; }
+
+        /// <summary>
+        /// Expiry date of the CA's own certificate (earliest across all issued CA certs).
+        /// Null means the certificate could not be parsed.
+        /// </summary>
+        [DefaultValue(null)]
+        public DateTime? CertificateExpiryDate { get; set; }
     }
 
     [DebuggerDisplay("{Name}")]
@@ -1256,6 +1386,14 @@ namespace PingCastle.Healthcheck
 
         public bool LdapServerSigningRequirementDisabled { get; set; }
 
+        /// <summary>
+        /// ESC10: Value of HKLM\SYSTEM\CurrentControlSet\Services\Kdc\StrongCertificateBindingEnforcement.
+        /// 0 = disabled (vulnerable), 1 = compatibility mode, 2 = full enforcement.
+        /// Null means the value could not be read (non-privileged scan or registry inaccessible).
+        /// </summary>
+        [DefaultValue(null)]
+        public int? StrongCertificateBindingEnforcement { get; set; }
+
         public DateTime PwdLastSet { get; set; }
 
         public string RegistrationProblem { get; set; }
@@ -1810,9 +1948,34 @@ namespace PingCastle.Healthcheck
 
         public bool ShouldSerializeCertificateTemplates() { return (int)Level <= (int)PingCastleReportDataExportLevel.Normal; }
 
-        public List<HealthCheckCertificateAuthorityData> CertificateAuthorities { get; set; }   
+        public List<HealthCheckCertificateAuthorityData> CertificateAuthorities { get; set; }
 
         public List<HealthCheckCertificateTemplate> CertificateTemplates { get; set; }
+
+        /// <summary>
+        /// ESC14: Accounts with weak explicit certificate-to-account mappings
+        /// in their altSecurityIdentities attribute.
+        /// </summary>
+        public List<HealthcheckWeakAltSecurityIdentityData> WeakAltSecurityIdentities { get; set; }
+
+        /// <summary>
+        /// ESC5: A low-privileged principal has write permissions on the
+        /// CN=NTAuthCertificates object, allowing a rogue CA to be added to the trusted store.
+        /// </summary>
+        [DefaultValue(null)]
+        public bool? NTAuthCertificatesVulnerableACL { get; set; }
+
+        /// <summary>
+        /// ESC5: Names of low-privileged principals with write rights on NTAuthCertificates.
+        /// </summary>
+        public List<string> NTAuthCertificatesLowPrivWritePrincipals { get; set; }
+
+        /// <summary>
+        /// Shadow Credentials: accounts that have msDS-KeyCredentialLink entries set.
+        /// An attacker with write access to this attribute can add a device credential and then
+        /// authenticate as the target account via PKINIT (WHfB) without knowing its password.
+        /// </summary>
+        public List<HealthcheckShadowCredentialData> ShadowCredentials { get; set; }
 
         public bool ShouldSerializeCertificateEnrollments() { return (int)Level <= (int)PingCastleReportDataExportLevel.Normal; }
         public List<HealthCheckCertificateEnrollment> CertificateEnrollments { get; set; }

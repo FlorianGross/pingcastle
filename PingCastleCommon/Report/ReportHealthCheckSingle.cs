@@ -1511,6 +1511,7 @@ If you are an auditor, you MUST purchase an Auditor license to share the develop
                             {
                                 AddHeaderText("WebDAV", "Detect if the WebClient service is running, which provide the ability to call http server from native command line.");
                             }
+                            AddHeaderText("Cert Binding (ESC10)", "StrongCertificateBindingEnforcement: 0=Disabled (vulnerable), 1=Compatibility mode, 2=Full enforcement (secure), N/A=not read");
                             AddBeginTableData();
 
                             int count = 0;
@@ -1546,6 +1547,12 @@ If you are an auditor, you MUST purchase an Auditor license to share the develop
                                 {
                                     AddCellText((dc.WebClientEnabled ? "YES" : "NO"), true, !dc.WebClientEnabled);
                                 }
+                                if (dc.StrongCertificateBindingEnforcement == null)
+                                    AddCellText("N/A");
+                                else if (dc.StrongCertificateBindingEnforcement == 2)
+                                    AddCellText("2 - Full enforcement", false, true);
+                                else
+                                    AddCellText(dc.StrongCertificateBindingEnforcement == 0 ? "0 - Disabled" : "1 - Compatibility", true);
                                 AddEndRow();
                             }
                             AddEndTable();
@@ -3750,7 +3757,13 @@ The best practice is to reset these passwords on a regular basis or to uncheck a
 		<div class=""row"">
 			<div class=""col-lg-12"">
 				<p>This detects trusted certificates which can be used in man in the middle attacks, or which can issue smart card logon certificates</p>
-				<p><strong>Number of trusted certificates:</strong> " + Report.TrustedCertificates.Count + @" 
+				<p><strong>Number of trusted certificates:</strong> " + Report.TrustedCertificates.Count + @"
+			</div>
+		</div>
+		<div class=""row"">
+			<div class=""col-lg-12"">
+" + (Report.NTAuthCertificatesVulnerableACL == true ? @"
+			<div class=""alert alert-danger""><strong>ESC5 – NTAuthCertificates ACL:</strong> A low-privileged user has write access to the NTAuthCertificates object. They can add a rogue CA to the enterprise trusted store.<br>Affected principals: " + string.Join(", ", Report.NTAuthCertificatesLowPrivWritePrincipals ?? new System.Collections.Generic.List<string>()) + @"</div>" : "") + @"
 			</div>
 		</div>
 		<div class=""row"">
@@ -3842,6 +3855,86 @@ The best practice is to reset these passwords on a regular basis or to uncheck a
 		</div>
 ");
 
+            if (Report.CertificateAuthorities != null && Report.CertificateAuthorities.Count > 0)
+            {
+                GenerateSubSection("Certificate Authorities", "certificateauthorities");
+                Add(@"
+		<div class=""row"">
+			<div class=""col-lg-12"">
+				<p>This section lists the Certificate Authorities (CAs) discovered in the domain.
+				CA-level misconfigurations can allow an attacker to issue fraudulent certificates or escalate privileges.</p>
+				<p><strong>Number of CAs:</strong> " + Report.CertificateAuthorities.Count + @"
+			</div>
+		</div>
+		<div class=""row"">
+			<div class=""col-lg-12"">
+");
+                GenerateAccordion("certificateAuthorities", () =>
+                {
+                    GenerateAccordionDetailForDetail("certificateAuthoritiesPanel", "certificateAuthorities", "Certificate Authorities", Report.CertificateAuthorities.Count, () =>
+                    {
+                        AddBeginTable("Certificate Authorities list");
+                        AddHeaderText("CA Name");
+                        AddHeaderText("Host");
+                        AddHeaderText("Low-priv Enroll", "A low-privileged user can directly request certificates from this CA");
+                        AddHeaderText("Low-priv ManageCA (ESC7)", "A low-privileged user holds the ManageCA right, allowing CA configuration changes");
+                        AddHeaderText("EDITF_ATTRIBUTESUBJECTALTNAME2 (ESC6)", "CA flag that allows any user to include an arbitrary Subject Alternative Name in certificate requests");
+                        AddHeaderText("RPC Encrypt Enforced (ESC11)", "IF_ENFORCEENCRYPTICERTREQUEST: when NO the ICertRequest DCOM interface allows NTLM relay attacks");
+                        AddHeaderText("Vulnerable Enrollment Service ACL (ESC5)", "A low-privileged user has write permissions on this CA's enrollment service AD object");
+                        AddHeaderText("Low-priv Owner", "A low-privileged user is the owner of the CA object");
+                        AddHeaderText("Audit Logging", "AuditFilter = 0 means no CA events (issuance, revocation, start/stop) are written to the Security event log");
+                        AddHeaderText("CA Cert Expiry", "Expiry date of the CA's own certificate — expiration halts certificate issuance and breaks authentication");
+                        AddHeaderText("Enrollment Restrictions");
+                        AddBeginTableData();
+
+                        foreach (var ca in Report.CertificateAuthorities)
+                        {
+                            bool hasManagerPrincipals = ca.LowPrivelegedManagerPrincipals != null && ca.LowPrivelegedManagerPrincipals.Count > 0;
+                            bool hasEnrollPrincipals = ca.LowPrivelegedEnrollPrincipals != null && ca.LowPrivelegedEnrollPrincipals.Count > 0;
+                            bool hasEditFlag = ca.HasSubjectAltNameFlag == true;
+                            bool isLowPrivOwner = ca.IsLowPrivilegedPrincipalOwner == true;
+                            bool vulnEnrollServiceACL = ca.VulnerableEnrollmentServiceACL == true;
+                            bool noAudit = ca.AuditFilter == 0;
+                            bool certExpiringSoon = ca.CertificateExpiryDate.HasValue
+                                && ca.CertificateExpiryDate.Value.ToUniversalTime() <= DateTime.UtcNow.AddDays(90);
+
+                            AddBeginRow();
+                            AddCellText(ca.Name);
+                            AddCellText(ca.DnsHostName);
+                            AddCellText(hasEnrollPrincipals ? "YES" : "NO", hasEnrollPrincipals);
+                            AddCellText(hasManagerPrincipals ? "YES" : "NO", hasManagerPrincipals);
+                            AddCellText(hasEditFlag ? "YES" : (ca.HasSubjectAltNameFlag == null ? "N/A" : "NO"), hasEditFlag);
+                            // ESC11: flag absent = vulnerable (highlight), flag present = secure
+                            if (ca.HasEnforceEncryptICertRequest == null)
+                                AddCellText("N/A");
+                            else if (ca.HasEnforceEncryptICertRequest == true)
+                                AddCellText("YES", false, true);
+                            else
+                                AddCellText("NO", true);
+                            AddCellText(vulnEnrollServiceACL ? "YES" : (ca.VulnerableEnrollmentServiceACL == null ? "N/A" : "NO"), vulnEnrollServiceACL);
+                            AddCellText(isLowPrivOwner ? "YES" : (ca.IsLowPrivilegedPrincipalOwner == null ? "N/A" : "NO"), isLowPrivOwner);
+                            // Audit: 0 = bad (no auditing), null = not read
+                            if (ca.AuditFilter == null)
+                                AddCellText("N/A");
+                            else
+                                AddCellText(noAudit ? "NONE (0)" : ca.AuditFilter.Value.ToString(), noAudit);
+                            // CA cert expiry
+                            if (!ca.CertificateExpiryDate.HasValue)
+                                AddCellText("N/A");
+                            else
+                                AddCellText(ca.CertificateExpiryDate.Value.ToString("yyyy-MM-dd"), certExpiringSoon);
+                            AddCellText(ca.EnrollmentRestrictions ?? "N/A");
+                            AddEndRow();
+                        }
+                        AddEndTable();
+                    });
+                });
+                Add(@"
+			</div>
+		</div>
+");
+            }
+
             if (Report.CertificateTemplates != null && Report.CertificateTemplates.Count > 0)
             {
                 // certificate template
@@ -3872,10 +3965,15 @@ The best practice is to reset these passwords on a regular basis or to uncheck a
                         AddHeaderText("Any purpose", "Indicates if no restrictions are in place for the certificate use such as authentication or agent use");
                         AddHeaderText("For Authentication", "Indicates certificates issued will be used for authentication purpose");
                         AddHeaderText("Flag No Security", "Indicates if the object szOID_NTDS_CA_SECURITY_EXT will not be included");
+                        AddHeaderText("Exportable Key", "CT_FLAG_EXPORTABLE_KEY: the private key can be exported from the certificate store, enabling key exfiltration");
+                        AddHeaderText("Key Archival (KRA)", "CT_FLAG_REQUIRE_PRIVATE_KEY_ARCHIVAL: the CA archives the private key via a KRA — KRA compromise exposes all archived keys");
+                        AddHeaderText("Validity (days)", "Maximum certificate validity period in days. Long-lived certs on enrollable templates extend the attacker's window");
+                        AddHeaderText("ESC (Certified Pre-Owned)", "Applicable ESC vulnerability numbers from the Certified Pre-Owned research (SpecterOps)");
                         AddBeginTableData();
 
                         foreach (var data in Report.CertificateTemplates)
                         {
+                            bool longValidity = data.ValidityPeriodDays > 1825 && data.LowPrivCanEnroll;
                             AddBeginRow();
                             AddNameWithCA(data.Name, data.CA);
                             AddCellText((data.Flags & 0x40) > 0 ? "Computer" : "User");
@@ -3888,6 +3986,11 @@ The best practice is to reset these passwords on a regular basis or to uncheck a
                             AddCellText(data.HasAnyPurpose ? "YES" : "NO", data.HasAnyPurpose, false);
                             AddCellText(data.HasAuthenticationEku ? "YES" : "NO");
                             AddCellText(data.NoSecurityExtension ? "YES" : "NO", data.NoSecurityExtension);
+                            AddCellText(data.ExportableKey ? "YES" : "NO", data.ExportableKey && data.LowPrivCanEnroll);
+                            AddCellText(data.RequiresKeyArchival ? "YES" : "NO", data.RequiresKeyArchival && data.LowPrivCanEnroll);
+                            AddCellText(data.ValidityPeriodDays > 0 ? data.ValidityPeriodDays.ToString() : "N/A", longValidity);
+                            var escLabels = GetCertTemplateEscLabels(data);
+                            AddCellText(escLabels, !string.IsNullOrEmpty(escLabels));
                             AddEndRow();
                         }
                         AddEndTable();
@@ -3922,6 +4025,46 @@ The best practice is to reset these passwords on a regular basis or to uncheck a
 		</div>
 ");
                 }
+            }
+
+            if (Report.ShadowCredentials != null && Report.ShadowCredentials.Count > 0)
+            {
+                GenerateSubSection("Shadow Credentials", "shadowcredentials");
+                Add(@"
+		<div class=""row"">
+			<div class=""col-lg-12"">
+				<p>The following accounts have entries in <strong>msDS-KeyCredentialLink</strong>. An attacker who can write to this attribute can add a forged device credential and authenticate as the account via PKINIT (Windows Hello for Business) without knowing the password — surviving password resets. Privileged account targets allow domain compromise.</p>
+				<p><strong>Number of affected accounts:</strong> " + Report.ShadowCredentials.Count + @"
+			</div>
+		</div>
+		<div class=""row"">
+			<div class=""col-lg-12"">
+");
+                GenerateAccordion("shadowCredentialsList", () =>
+                {
+                    GenerateAccordionDetailForDetail("shadowCredentialsPanel", "shadowCredentialsList", "Shadow Credentials", Report.ShadowCredentials.Count, () =>
+                    {
+                        AddBeginTable("Shadow Credentials list");
+                        AddHeaderText("Account");
+                        AddHeaderText("Credential Count", "Number of msDS-KeyCredentialLink entries on the account");
+                        AddHeaderText("Privileged", "The account is a member of a highly-privileged group");
+                        AddBeginTableData();
+
+                        foreach (var entry in Report.ShadowCredentials)
+                        {
+                            AddBeginRow();
+                            AddCellText(entry.AccountName);
+                            AddCellText(entry.CredentialCount.ToString());
+                            AddCellText(entry.IsPrivileged ? "YES" : "NO", entry.IsPrivileged);
+                            AddEndRow();
+                        }
+                        AddEndTable();
+                    });
+                });
+                Add(@"
+			</div>
+		</div>
+");
             }
 
             int DCCertCount = 0;
@@ -4067,6 +4210,48 @@ The best practice is to reset these passwords on a regular basis or to uncheck a
                 AddEndRow();
             }
             AddEndTable();
+        }
+
+        /// <summary>
+        /// Returns a comma-separated list of applicable ESC vulnerability labels
+        /// (from the Certified Pre-Owned research) for the given certificate template.
+        /// </summary>
+        private static string GetCertTemplateEscLabels(HealthCheckCertificateTemplate ct)
+        {
+            var labels = new System.Collections.Generic.List<string>();
+
+            // ESC1: Low-privileged user can request a cert with arbitrary SAN via an auth template
+            if (!ct.CAManagerApproval && ct.IssuanceRequirementsEmpty && ct.LowPrivCanEnroll
+                && ct.HasAuthenticationEku && ct.EnrolleeSupplies > 0)
+                labels.Add("ESC1");
+
+            // ESC2: Template with Any Purpose EKU (or no EKU) enrollable by low-priv users
+            if (!ct.CAManagerApproval && !ct.IsAuthorisedSignaturesRequired
+                && ct.IssuanceRequirementsEmpty && ct.LowPrivCanEnroll && ct.HasAnyPurpose)
+                labels.Add("ESC2");
+
+            // ESC3: Enrollment Agent template enrollable by low-priv users
+            if (!ct.CAManagerApproval && ct.IssuanceRequirementsEmpty
+                && ct.LowPrivCanEnroll && ct.EnrollmentAgentTemplate)
+                labels.Add("ESC3");
+
+            // ESC4: Low-privileged user has write permissions on the template object
+            if (ct.VulnerableTemplateACL)
+                labels.Add("ESC4");
+
+            // ESC9: Template sets CT_FLAG_NO_SECURITY_EXTENSION – prevents SID binding
+            if (ct.NoSecurityExtension)
+                labels.Add("ESC9");
+
+            // ESC13: Template issuance policy is linked to a security group via msDS-OIDToGroupLink
+            if (!string.IsNullOrEmpty(ct.LinkedOIDGroup))
+                labels.Add("ESC13");
+
+            // ESC15: Schema V1 template allows enrollee-supplied Application Policies (EKUwu)
+            if (ct.SchemaVersion == 1 && ct.LowPrivCanEnroll && !ct.CAManagerApproval && ct.IssuanceRequirementsEmpty)
+                labels.Add("ESC15");
+
+            return string.Join(", ", labels);
         }
 
         void AddNameWithCA(string Name, IReadOnlyCollection<string> CA)

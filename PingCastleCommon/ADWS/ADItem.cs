@@ -254,14 +254,24 @@ namespace PingCastle.ADWS
         public string[] msExchComponentStates { get; set; }
         [ADAttributeAttribute("msExchInternetWebProxy", ADAttributeValueKind.StringValue)]
         public string msExchInternetWebProxy { get; set; }
+        [ADAttributeAttribute("altSecurityIdentities", ADAttributeValueKind.StringArrayValue)]
+        public string[] AltSecurityIdentities { get; set; }
         [ADAttributeAttribute("msPKI-Certificate-Name-Flag", ADAttributeValueKind.IntValue)]
         public int msPKICertificateNameFlag { get; set; }
+        [ADAttributeAttribute("msPKI-Certificate-Policy", ADAttributeValueKind.StringArrayValue)]
+        public string[] msPKICertificatePolicy { get; set; }
+        [ADAttributeAttribute("msDS-OIDToGroupLink", ADAttributeValueKind.StringValue)]
+        public string msDSOIDToGroupLink { get; set; }
         [ADAttributeAttribute("msPKI-Cert-Template-OID", ADAttributeValueKind.StringValue)]
         public string msPKICertTemplateOID { get; set; }
         [ADAttributeAttribute("msPKI-Enrollment-Flag", ADAttributeValueKind.IntValue)]
         public int msPKIEnrollmentFlag { get; set; }
         [ADAttributeAttribute("msPKI-Private-Key-Flag", ADAttributeValueKind.IntValue)]
         public int msPKIPrivateKeyFlag { get; set; }
+        [ADAttributeAttribute("pKIMaximumValidity", ADAttributeValueKind.ByteArrayValue)]
+        public byte[] pKIMaximumValidity { get; set; }
+        [ADAttributeAttribute("msDS-KeyCredentialLink", ADAttributeValueKind.StringArrayValue)]
+        public string[] msDSKeyCredentialLink { get; set; }
         [ADAttributeAttribute("msPKI-RA-Application-Policies", ADAttributeValueKind.StringValue)]
         public string msPKIRAApplicationPolicies { get; set; }
         [ADAttributeAttribute("msPKI-Template-Schema-Version", ADAttributeValueKind.IntValue)]

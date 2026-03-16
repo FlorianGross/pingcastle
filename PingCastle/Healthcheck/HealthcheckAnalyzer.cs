@@ -2178,7 +2178,10 @@ namespace PingCastle.Healthcheck
                 {
                     GenerateNTLMStoreData(domainInfo, adws);
                     GenerateCertificateTemplateData(domainInfo, adws);
+                    EnrichTemplatesWithOIDGroupLinks(domainInfo, adws);
                     GenerateADCSEnrollmentServerData(domainInfo, adws);
+                    GenerateAltSecIdentityData(domainInfo, adws);
+                    GenerateShadowCredentialData(domainInfo, adws);
                 }
             }
         }
@@ -2191,6 +2194,7 @@ namespace PingCastle.Healthcheck
                         "certificateTemplates",
                         "name",
                         "dNSHostName",
+                        "nTSecurityDescriptor",
                         };
             var output = new Dictionary<string, List<string>>();
             WorkOnReturnedObjectByADWS callback =
@@ -2287,6 +2291,63 @@ namespace PingCastle.Healthcheck
             if (managerPrincipals.Any())
                 ca.LowPrivelegedManagerPrincipals = managerPrincipals;
 
+            // ESC6: check if EDITF_ATTRIBUTESUBJECTALTNAME2 is set on the CA policy module
+            if (ca.TryGetEditFlags(out var editFlags))
+                ca.HasSubjectAltNameFlag = (editFlags & 0x40) != 0;
+
+            // ESC11: check if IF_ENFORCEENCRYPTICERTREQUEST (0x200) is set in InterfaceFlags
+            if (ca.TryGetInterfaceFlags(out var interfaceFlags))
+                ca.HasEnforceEncryptICertRequest = (interfaceFlags & 0x200) != 0;
+
+            // CA Audit Logging: AuditFilter = 0 means no events are logged
+            if (ca.TryGetAuditFilter(out var auditFilter))
+                ca.AuditFilter = auditFilter;
+
+            // CA Certificate Expiry: parse the earliest expiry from the CA's own certificate(s)
+            if (ca.CertificatesData != null)
+            {
+                foreach (var rawCert in ca.CertificatesData)
+                {
+                    try
+                    {
+                        var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(rawCert);
+                        if (ca.CertificateExpiryDate == null || cert.NotAfter < ca.CertificateExpiryDate.Value)
+                            ca.CertificateExpiryDate = cert.NotAfter;
+                    }
+                    catch { /* ignore unparseable certs */ }
+                }
+            }
+
+            // ESC5: check if low-privileged users can write to the pKIEnrollmentService AD object
+            if (item.NTSecurityDescriptor != null)
+            {
+                var lowPrivWriters = new List<string>();
+                foreach (ActiveDirectoryAccessRule rule in item.NTSecurityDescriptor.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+                {
+                    if (rule.AccessControlType == AccessControlType.Deny)
+                        continue;
+                    if (!TryMatchLowPrivilegeUser((SecurityIdentifier)rule.IdentityReference, adws, out var userName))
+                        continue;
+                    if (rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.WriteDacl)
+                        || rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.WriteOwner)
+                        || rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.GenericWrite)
+                        || rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.WriteProperty)
+                        || (rule.ActiveDirectoryRights & (ActiveDirectoryRights)0x10000000) != 0) // GenericAll
+                    {
+                        lowPrivWriters.Add(userName);
+                    }
+                }
+                if (lowPrivWriters.Count > 0)
+                {
+                    ca.VulnerableEnrollmentServiceACL = true;
+                    ca.LowPrivilegedEnrollmentServiceWritePrincipals = lowPrivWriters.Distinct().ToList();
+                }
+                else
+                {
+                    ca.VulnerableEnrollmentServiceACL = false;
+                }
+            }
+
             return ca;
         }
 
@@ -2297,12 +2358,14 @@ namespace PingCastle.Healthcheck
                         "flags",
                         "msPKI-Cert-Template-OID",
                         "msPKI-Certificate-Name-Flag",
+                        "msPKI-Certificate-Policy",
                         "msPKI-Enrollment-Flag",
                         "msPKI-Private-Key-Flag",
                         "msPKI-RA-Application-Policies",
                         "msPKI-Template-Schema-Version",
                         "name",
                         "pKIExtendedKeyUsage",
+                        "pKIMaximumValidity",
                         "nTSecurityDescriptor",
                         "whenChanged",
             };
@@ -2451,6 +2514,25 @@ namespace PingCastle.Healthcheck
                     {
                         ct.EKUs.AddRange(x.pKIExtendedKeyUsage);
                     }
+
+                    // ESC13: store issuance policies for OID-group-link cross-reference
+                    if (x.msPKICertificatePolicy != null && x.msPKICertificatePolicy.Length > 0)
+                    {
+                        ct.IssuancePolicies = new List<string>(x.msPKICertificatePolicy);
+                    }
+
+                    // Private key flags: exportable key and key archival
+                    ct.ExportableKey = (x.msPKIPrivateKeyFlag & 0x10) != 0;
+                    ct.RequiresKeyArchival = (x.msPKIPrivateKeyFlag & 0x4000) != 0;
+
+                    // Validity period: pKIMaximumValidity is an 8-byte little-endian negative FILETIME interval
+                    if (x.pKIMaximumValidity != null && x.pKIMaximumValidity.Length == 8)
+                    {
+                        var ticks = -BitConverter.ToInt64(x.pKIMaximumValidity, 0);
+                        if (ticks > 0)
+                            ct.ValidityPeriodDays = (int)(ticks / 10_000_000L / 86400L);
+                    }
+
                     // client authentification then smart card logon then PKINIT Client Authentication then any purpose
                     ct.HasAuthenticationEku = ct.EKUs.Count == 0 || ct.EKUs.Contains("1.3.6.1.5.5.7.3.2") || ct.EKUs.Contains("1.3.6.1.4.1.311.20.2.2") || ct.EKUs.Contains("1.3.6.1.5.2.3.4") || ct.EKUs.Contains("2.5.29.37.0");
                     ct.HasAnyPurpose = ct.EKUs.Count == 0 || ct.EKUs.Contains("2.5.29.37.0");
@@ -2460,11 +2542,174 @@ namespace PingCastle.Healthcheck
             adws.Enumerate("CN=Public Key Services,CN=Services," + domainInfo.ConfigurationNamingContext, "(objectClass=pKICertificateTemplate)", properties, callback);
         }
 
+        /// <summary>
+        /// ESC14: Finds accounts whose altSecurityIdentities attribute uses weak explicit
+        /// certificate-to-account mapping formats (RFC822, UPN, SubjectOnly).
+        /// Weak mappings can be spoofed by an attacker who can write the corresponding
+        /// attribute (mail, userPrincipalName, or the subject DN) on another account.
+        /// </summary>
+        private void GenerateAltSecIdentityData(ADDomainInfo domainInfo, ADWebService adws)
+        {
+            healthcheckData.WeakAltSecurityIdentities = new List<HealthcheckWeakAltSecurityIdentityData>();
+
+            // Build a set of privileged account DNs for quick lookup
+            var privilegedDNs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (healthcheckData.AllPrivilegedMembers != null)
+            {
+                foreach (var m in healthcheckData.AllPrivilegedMembers)
+                    if (!string.IsNullOrEmpty(m.DistinguishedName))
+                        privilegedDNs.Add(m.DistinguishedName);
+            }
+
+            string[] properties = new string[] {
+                "distinguishedname",
+                "SamAccountName",
+                "altSecurityIdentities",
+            };
+
+            WorkOnReturnedObjectByADWS callback = (ADItem x) =>
+            {
+                if (x.AltSecurityIdentities == null) return;
+
+                foreach (var mapping in x.AltSecurityIdentities)
+                {
+                    string mappingType = null;
+
+                    // Weak: email-based — attacker can set victim's mail attribute
+                    if (mapping.StartsWith("X509:<RFC822>", StringComparison.OrdinalIgnoreCase))
+                        mappingType = "RFC822";
+                    // Weak: UPN-based — attacker can set victim's userPrincipalName
+                    else if (mapping.StartsWith("X509:<UPN>", StringComparison.OrdinalIgnoreCase))
+                        mappingType = "UPN";
+                    // Weak: Subject-only (no issuer) — predictable, not uniquely bound to one cert
+                    else if (mapping.StartsWith("X509:<S>", StringComparison.OrdinalIgnoreCase)
+                             && !mapping.StartsWith("X509:<S><I>", StringComparison.OrdinalIgnoreCase))
+                        mappingType = "SubjectOnly";
+
+                    if (mappingType == null) continue;
+
+                    healthcheckData.WeakAltSecurityIdentities.Add(new HealthcheckWeakAltSecurityIdentityData
+                    {
+                        AccountName    = x.SAMAccountName,
+                        DistinguishedName = x.DistinguishedName,
+                        MappingType    = mappingType,
+                        MappingValue   = mapping,
+                        IsPrivileged   = privilegedDNs.Contains(x.DistinguishedName),
+                    });
+                }
+            };
+
+            // Only query accounts that actually have altSecurityIdentities set
+            adws.Enumerate(domainInfo.DefaultNamingContext,
+                "(&(objectCategory=person)(altSecurityIdentities=*))",
+                properties, callback);
+
+            // Also check computer accounts (less common but possible)
+            adws.Enumerate(domainInfo.DefaultNamingContext,
+                "(&(objectCategory=computer)(altSecurityIdentities=*))",
+                properties, callback);
+        }
+
+        /// <summary>
+        /// Shadow Credentials: enumerates accounts that have msDS-KeyCredentialLink set.
+        /// An attacker with write access to this attribute can impersonate the account via PKINIT.
+        /// Reference: "Shadow Credentials" (Elad Shamir / SpecterOps).
+        /// </summary>
+        private void GenerateShadowCredentialData(ADDomainInfo domainInfo, ADWebService adws)
+        {
+            healthcheckData.ShadowCredentials = new List<HealthcheckShadowCredentialData>();
+
+            var privilegedDNs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (healthcheckData.AllPrivilegedMembers != null)
+            {
+                foreach (var m in healthcheckData.AllPrivilegedMembers)
+                    if (!string.IsNullOrEmpty(m.DistinguishedName))
+                        privilegedDNs.Add(m.DistinguishedName);
+            }
+
+            string[] properties = new string[] {
+                "distinguishedname",
+                "sAMAccountName",
+                "msDS-KeyCredentialLink",
+            };
+
+            WorkOnReturnedObjectByADWS callback = (ADItem x) =>
+            {
+                if (x.msDSKeyCredentialLink == null || x.msDSKeyCredentialLink.Length == 0)
+                    return;
+
+                healthcheckData.ShadowCredentials.Add(new HealthcheckShadowCredentialData
+                {
+                    AccountName = x.SAMAccountName,
+                    DistinguishedName = x.DistinguishedName,
+                    IsPrivileged = privilegedDNs.Contains(x.DistinguishedName),
+                    CredentialCount = x.msDSKeyCredentialLink.Length,
+                });
+            };
+
+            adws.Enumerate(domainInfo.DefaultNamingContext,
+                "(&(objectCategory=person)(msDS-KeyCredentialLink=*))",
+                properties, callback);
+
+            adws.Enumerate(domainInfo.DefaultNamingContext,
+                "(&(objectCategory=computer)(msDS-KeyCredentialLink=*))",
+                properties, callback);
+        }
+
+        /// <summary>
+        /// ESC13: Enumerates all msPKI-Enterprise-Oid objects that have an msDS-OIDToGroupLink set,
+        /// then cross-references with certificate templates to flag templates whose issuance policies
+        /// are linked to a security group (potentially granting implicit group membership on cert issuance).
+        /// </summary>
+        private void EnrichTemplatesWithOIDGroupLinks(ADDomainInfo domainInfo, ADWebService adws)
+        {
+            if (healthcheckData.CertificateTemplates == null || healthcheckData.CertificateTemplates.Count == 0)
+                return;
+
+            // Build OID value → group DN map
+            var oidToGroupDN = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            string[] oidProperties = new string[] { "distinguishedname", "msPKI-Cert-Template-OID", "msDS-OIDToGroupLink", "name" };
+            WorkOnReturnedObjectByADWS oidCallback = (ADItem x) =>
+            {
+                if (!string.IsNullOrEmpty(x.msDSOIDToGroupLink) && !string.IsNullOrEmpty(x.msPKICertTemplateOID))
+                    oidToGroupDN[x.msPKICertTemplateOID] = x.msDSOIDToGroupLink;
+            };
+
+            adws.Enumerate(
+                "CN=OID,CN=Public Key Services,CN=Services," + domainInfo.ConfigurationNamingContext,
+                "(objectClass=msPKI-Enterprise-Oid)",
+                oidProperties,
+                oidCallback);
+
+            if (oidToGroupDN.Count == 0)
+                return;
+
+            // Cross-reference with templates
+            foreach (var ct in healthcheckData.CertificateTemplates)
+            {
+                if (ct.IssuancePolicies == null)
+                    continue;
+
+                foreach (var oid in ct.IssuancePolicies)
+                {
+                    if (oidToGroupDN.TryGetValue(oid, out var groupDN))
+                    {
+                        // Resolve group name from DN (best effort)
+                        var groupName = groupDN.Contains(',') ? groupDN.Split(',')[0].Replace("CN=", "") : groupDN;
+                        ct.LinkedOIDGroup = groupName;
+                        break;
+                    }
+                }
+            }
+        }
+
         private void GenerateNTLMStoreData(ADDomainInfo domainInfo, ADWebService adws)
         {
             string[] properties = new string[] {
                         "distinguishedname",
                         "cACertificate",
+                        "nTSecurityDescriptor",
             };
             WorkOnReturnedObjectByADWS callback =
                 (ADItem x) =>
@@ -2478,6 +2723,36 @@ namespace PingCastle.Healthcheck
                             data.Store = "NTLMStore";
                             data.Certificate = certificate.GetRawCertData();
                             healthcheckData.TrustedCertificates.Add(data);
+                        }
+                    }
+
+                    // ESC5: check if low-privileged users can write to NTAuthCertificates
+                    if (healthcheckData.IsPrivilegedMode && x.NTSecurityDescriptor != null)
+                    {
+                        var lowPrivWriters = new List<string>();
+                        foreach (ActiveDirectoryAccessRule rule in x.NTSecurityDescriptor.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+                        {
+                            if (rule.AccessControlType == AccessControlType.Deny)
+                                continue;
+                            if (!TryMatchLowPrivilegeUser((SecurityIdentifier)rule.IdentityReference, adws, out var userName))
+                                continue;
+                            if (rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.WriteDacl)
+                                || rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.WriteOwner)
+                                || rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.GenericWrite)
+                                || rule.ActiveDirectoryRights.HasFlag(ActiveDirectoryRights.WriteProperty)
+                                || (rule.ActiveDirectoryRights & (ActiveDirectoryRights)0x10000000) != 0) // GenericAll
+                            {
+                                lowPrivWriters.Add(userName);
+                            }
+                        }
+                        if (lowPrivWriters.Count > 0)
+                        {
+                            healthcheckData.NTAuthCertificatesVulnerableACL = true;
+                            healthcheckData.NTAuthCertificatesLowPrivWritePrincipals = lowPrivWriters.Distinct().ToList();
+                        }
+                        else
+                        {
+                            healthcheckData.NTAuthCertificatesVulnerableACL = false;
                         }
                     }
                 };
@@ -5750,6 +6025,15 @@ namespace PingCastle.Healthcheck
                         GenerateTLSConnectionInfo(dns, DC, adws.Credential, threadId);
                         Trace.WriteLine("[" + threadId + "] Working on ldap signing requirements " + dns);
                         GenerateLDAPSigningRequirementInfo(dns, DC, adws.Credential, threadId);
+                        // ESC10: read StrongCertificateBindingEnforcement from KDC registry
+                        if (RegistryHelper.TryGetHKLMKeyDWordValue(
+                            @"SYSTEM\CurrentControlSet\Services\Kdc",
+                            "StrongCertificateBindingEnforcement",
+                            dns,
+                            out var strongBinding))
+                        {
+                            DC.StrongCertificateBindingEnforcement = strongBinding;
+                        }
                         if (!SkipRPC)
                         {
                             Trace.WriteLine("[" + threadId + "] testing RPC " + dns);
