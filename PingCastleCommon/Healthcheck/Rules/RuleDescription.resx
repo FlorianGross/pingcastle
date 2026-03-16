@@ -6142,4 +6142,165 @@ The detection triggers when specific high-risk permissions are assigned to OUs w
     <value>See the Certificate Authorities table in the PKI section of the report</value>
   </data>
 
+  <!-- A-CertCAEditFlag: ESC6 – EDITF_ATTRIBUTESUBJECTALTNAME2 enabled on CA -->
+  <data name="A_CertCAEditFlag_Title" xml:space="preserve">
+    <value>CA Allows Attacker-Supplied Subject Alternative Name (ESC6)</value>
+  </data>
+  <data name="A_CertCAEditFlag_Description" xml:space="preserve">
+    <value>The EDITF_ATTRIBUTESUBJECTALTNAME2 flag is set on one or more Certificate Authorities. This allows any enrollee to supply an arbitrary Subject Alternative Name (SAN) in a certificate request, even for templates that do not normally permit it.</value>
+  </data>
+  <data name="A_CertCAEditFlag_TechnicalExplanation" xml:space="preserve">
+    <value>When EDITF_ATTRIBUTESUBJECTALTNAME2 is enabled in the CA's policy module flags (HKLM\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\{CA}\PolicyModules\CertificateAuthority_MicrosoftDefault.Policy\EditFlags), the CA accepts a SAN extension from the CSR regardless of the template configuration. An attacker with any enroll permission on a template that allows Client Authentication can request a certificate with SAN=UPN of a Domain Admin and authenticate as that user via PKINIT or Schannel (S4U2Self). This is the ESC6 attack path described in Certified Pre-Owned (SpecterOps). Note: reading this flag requires privileged access to the CA registry.</value>
+  </data>
+  <data name="A_CertCAEditFlag_Solution" xml:space="preserve">
+    <value>Disable the flag by running: certutil -config "CA\CAName" -setreg policy\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2 and then restarting the CertSvc service. Verify with: certutil -getreg policy\EditFlags. After disabling, review any processes or templates that relied on custom SANs, as they will need to be reconfigured to use template-supplied SANs instead.</value>
+  </data>
+  <data name="A_CertCAEditFlag_Rationale" xml:space="preserve">
+    <value>{count} CA(s) have EDITF_ATTRIBUTESUBJECTALTNAME2 enabled, allowing arbitrary SAN injection (ESC6)</value>
+  </data>
+  <data name="A_CertCAEditFlag_Detail" xml:space="preserve">
+    <value>CA: {0} on host: {1}</value>
+  </data>
+  <data name="A_CertCAEditFlag_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Authorities table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertCAICertRequest: ESC11 – ICertRequest RPC endpoint without encryption enforcement -->
+  <data name="A_CertCAICertRequest_Title" xml:space="preserve">
+    <value>CA ICertRequest Interface Allows NTLM Relay (ESC11)</value>
+  </data>
+  <data name="A_CertCAICertRequest_Description" xml:space="preserve">
+    <value>One or more Certificate Authorities do not enforce packet privacy on their ICertRequest DCOM/RPC interface. This allows an NTLM relay attack to the CA's RPC endpoint, enabling an attacker to obtain certificates on behalf of a relayed identity.</value>
+  </data>
+  <data name="A_CertCAICertRequest_TechnicalExplanation" xml:space="preserve">
+    <value>The IF_ENFORCEENCRYPTICERTREQUEST flag (0x200) in the CA's InterfaceFlags registry value (HKLM\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\{CA}\InterfaceFlags) controls whether the ICertRequest RPC interface requires packet privacy (encryption). When this flag is absent, certificate requests can be relayed via NTLM relay techniques (e.g. PetitPotam / CVE-2021-36942 / Coerce) to impersonate machine accounts or privileged users. Combined with a template that allows machine or user certificate enrollment, this can lead to full domain compromise. Note: reading this flag requires privileged access to the CA registry.</value>
+  </data>
+  <data name="A_CertCAICertRequest_Solution" xml:space="preserve">
+    <value>Enable encryption enforcement by setting the IF_ENFORCEENCRYPTICERTREQUEST flag: certutil -config "CA\CAName" -setreg CA\InterfaceFlags +IF_ENFORCEENCRYPTICERTREQUEST and restart the CertSvc service. Also consider enabling Extended Protection for Authentication (EPA) on the CA's web enrollment interface (CES/CEP) and blocking unauthenticated coercion primitives (PetitPotam) with the patch for CVE-2021-36942.</value>
+  </data>
+  <data name="A_CertCAICertRequest_Rationale" xml:space="preserve">
+    <value>{count} CA(s) do not enforce encryption on the ICertRequest interface, enabling NTLM relay (ESC11)</value>
+  </data>
+  <data name="A_CertCAICertRequest_Detail" xml:space="preserve">
+    <value>CA: {0} on host: {1}</value>
+  </data>
+  <data name="A_CertCAICertRequest_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Authorities table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertESC15EKUwu: ESC15 – Schema Version 1 template allows EKU injection (CVE-2024-49019) -->
+  <data name="A_CertESC15EKUwu_Title" xml:space="preserve">
+    <value>Certificate Template Allows Application Policy Injection via CSR (ESC15 / EKUwu)</value>
+  </data>
+  <data name="A_CertESC15EKUwu_Description" xml:space="preserve">
+    <value>One or more Schema Version 1 certificate templates permit low-privileged enrollment without manager approval. Because Version 1 templates do not bind Application Policies from the CA configuration, the CA accepts Application Policies supplied by the enrollee in the CSR, enabling arbitrary EKU injection (CVE-2024-49019).</value>
+  </data>
+  <data name="A_CertESC15EKUwu_TechnicalExplanation" xml:space="preserve">
+    <value>Schema Version 1 templates (msPKI-Template-Schema-Version = 1) were the original AD CS template format and predate the enforcement of CA-controlled Application Policies. When a CSR is submitted against a Version 1 template, the CA copies Application Policy extensions directly from the CSR rather than enforcing those defined on the template. An attacker who can enroll on such a template can inject any Application Policy OID (e.g. 1.3.6.1.5.5.7.3.2 Client Authentication, 1.3.6.1.4.1.311.20.2.2 Smart Card Logon) into the issued certificate. The resulting certificate can be used to authenticate as the requesting user with escalated capabilities, even though the template itself does not define those EKUs. Affected templates must also permit low-privileged enrollment, require no manager approval, and have no authorised-signature issuance requirements. Patched by Microsoft in November 2024 (KB5044284 / KB5044277).</value>
+  </data>
+  <data name="A_CertESC15EKUwu_Solution" xml:space="preserve">
+    <value>Apply the November 2024 Windows cumulative update (KB5044284 for Windows Server 2022, KB5044277 for Windows Server 2019) on all CA servers. After patching, upgrade affected templates to Schema Version 2 or higher using the Certificate Templates MMC snap-in (right-click template, Properties, Compatibility tab, set CA and recipient to Windows Server 2003 or later). Alternatively, restrict enrollment permissions so that only authorised principals can enroll on Version 1 templates.</value>
+  </data>
+  <data name="A_CertESC15EKUwu_Rationale" xml:space="preserve">
+    <value>{count} Schema Version 1 template(s) allow low-privileged EKU injection via CSR (ESC15 / CVE-2024-49019)</value>
+  </data>
+  <data name="A_CertESC15EKUwu_Detail" xml:space="preserve">
+    <value>Template: {0}</value>
+  </data>
+  <data name="A_CertESC15EKUwu_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Templates table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertESC5EnrollService: ESC5 – Low-privileged write on pKIEnrollmentService object -->
+  <data name="A_CertESC5EnrollService_Title" xml:space="preserve">
+    <value>Low-Privileged Principal Can Write to CA Enrollment Service AD Object (ESC5)</value>
+  </data>
+  <data name="A_CertESC5EnrollService_Description" xml:space="preserve">
+    <value>A low-privileged principal has write permissions on a CA's pKIEnrollmentService object in the AD Configuration partition. This allows the principal to add or remove certificate templates from the CA's published list or to take over the object entirely, leading to domain compromise.</value>
+  </data>
+  <data name="A_CertESC5EnrollService_TechnicalExplanation" xml:space="preserve">
+    <value>The pKIEnrollmentService object (CN={CA Name},CN=Enrollment Services,CN=Public Key Services,CN=Services,CN=Configuration,...) in AD defines which templates a CA publishes and controls how clients discover the CA. A principal with WriteDACL, WriteOwner, GenericWrite, or GenericAll on this object can: add malicious or permissive templates to the CA's published template list (enabling ESC1/ESC2/ESC3 attacks), modify the CA's DNS hostname to redirect enrollment traffic, or grant themselves or others additional enrollment permissions. This is part of the ESC5 attack class (Vulnerable PKI AD Object Permissions) described in Certified Pre-Owned (SpecterOps).</value>
+  </data>
+  <data name="A_CertESC5EnrollService_Solution" xml:space="preserve">
+    <value>Remove unnecessary write permissions from the pKIEnrollmentService AD object. Only Domain Admins, Enterprise Admins, and the CA computer account should have write access. Use Get-Acl on the AD path CN={CA},CN=Enrollment Services,CN=Public Key Services,CN=Services,CN=Configuration,... to audit current permissions, then remove any non-administrative write rights via Set-Acl or the Active Directory Users and Computers advanced ACL editor.</value>
+  </data>
+  <data name="A_CertESC5EnrollService_Rationale" xml:space="preserve">
+    <value>{count} CA enrollment service object(s) have low-privileged write permissions (ESC5)</value>
+  </data>
+  <data name="A_CertESC5EnrollService_Detail" xml:space="preserve">
+    <value>CA: {0} on host: {1} - Principal: {2}</value>
+  </data>
+  <data name="A_CertESC5EnrollService_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Authorities table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertESC13OIDGroupLink: ESC13 – OID Group Link grants group membership via certificate -->
+  <data name="A_CertESC13OIDGroupLink_Title" xml:space="preserve">
+    <value>Certificate Template Grants Group Membership via OID Group Link (ESC13)</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Description" xml:space="preserve">
+    <value>One or more certificate templates have an issuance policy linked to a security group via the msDS-OIDToGroupLink attribute. A low-privileged user who can enroll on such a template receives a Kerberos ticket that includes the linked group's SID, effectively granting group membership at logon time.</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_TechnicalExplanation" xml:space="preserve">
+    <value>When a certificate template's msPKI-Certificate-Policy references an OID object that has msDS-OIDToGroupLink set to a security group, the KDC adds the group's SID to the Kerberos PAC of the authenticating user. This means any user who can enroll on the template inherits the group's permissions for the duration of their Kerberos ticket. If the linked group holds elevated privileges (e.g. Domain Admins, Administrators), this is a direct privilege escalation path requiring only certificate enrollment rights. The attack does not leave traces on the user account itself — only in the certificate and Kerberos ticket. Reference: ESC13 (SpecterOps, Certified Pre-Owned extension research).</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Solution" xml:space="preserve">
+    <value>Review the OID group links on all certificate templates. Remove the msDS-OIDToGroupLink attribute from OID objects linked to templates that permit low-privileged enrollment, or restrict enrollment on those templates to only the users who should have membership in the linked group. Use Get-ADObject to audit msDS-OIDToGroupLink values: Get-ADObject -Filter {msDS-OIDToGroupLink -like "*"} -Properties msDS-OIDToGroupLink.</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Rationale" xml:space="preserve">
+    <value>{count} certificate template(s) grant elevated group membership via OID group link to low-privileged enrollees (ESC13)</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_Detail" xml:space="preserve">
+    <value>Template: {0} - Linked Group: {1}</value>
+  </data>
+  <data name="A_CertESC13OIDGroupLink_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Templates table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertESC14WeakAltSecMapping: ESC14 – Weak explicit certificate mapping via altSecurityIdentities -->
+  <data name="A_CertESC14WeakAltSecMapping_Title" xml:space="preserve">
+    <value>Accounts Use Weak Certificate-to-Account Mapping (ESC14)</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Description" xml:space="preserve">
+    <value>One or more AD accounts have explicit certificate mappings (altSecurityIdentities) that use weak mapping types such as RFC822 (email), UPN, or Subject-only. These mapping types rely on certificate fields that an attacker can influence, potentially allowing authentication as the mapped account.</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_TechnicalExplanation" xml:space="preserve">
+    <value>The altSecurityIdentities attribute on AD user or computer objects can hold explicit certificate-to-account mappings used for PKINIT authentication. Weak mapping types are exploitable as follows: RFC822 (X509RFC822:email@domain) — an attacker with write access to the victim's mail attribute can set it to match a certificate they control; UPN (X509SubjectAltSecurityIdentity:upn@domain) — an attacker with write access to userPrincipalName can redirect authentication; SubjectOnly (X509SubjectOnly:CN=...) — a DN-only mapping without issuer binding can be satisfied by any CA. The risk is highest when privileged accounts (Domain Admins, service accounts) use these weak mappings. Reference: ESC14 (SpecterOps).</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Solution" xml:space="preserve">
+    <value>Replace weak mappings with strong explicit mappings that include the certificate's issuer and serial number or SHA1 thumbprint (X509IssuerSerialNumber or X509SHA1PublicKey). Audit existing mappings with: Get-ADUser -Filter {altSecurityIdentities -like "*"} -Properties altSecurityIdentities. Remove RFC822, UPN-only, and SubjectOnly mappings from privileged accounts as a priority. Consider enforcing certificate binding enforcement mode on DCs (StrongCertificateBindingEnforcement = 2).</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Rationale" xml:space="preserve">
+    <value>{count} account(s) have weak explicit certificate mappings that could be exploited for authentication (ESC14)</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_Detail" xml:space="preserve">
+    <value>Account: {0} - Mapping type: {1} - Privilege level: {2} - Value: {3}</value>
+  </data>
+  <data name="A_CertESC14WeakAltSecMapping_ReportLocation" xml:space="preserve">
+    <value>See the Accounts section of the report for altSecurityIdentities details</value>
+  </data>
+
+  <!-- A-CertESC5NTAuth: ESC5 – Low-privileged write on NTAuthCertificates object -->
+  <data name="A_CertESC5NTAuth_Title" xml:space="preserve">
+    <value>Low-Privileged Principal Can Write to NTAuthCertificates AD Object (ESC5)</value>
+  </data>
+  <data name="A_CertESC5NTAuth_Description" xml:space="preserve">
+    <value>A low-privileged principal has write permissions on the CN=NTAuthCertificates object in the AD Configuration partition. This allows the principal to add a rogue CA certificate to the enterprise trusted CA store, enabling authentication with certificates issued by an untrusted CA.</value>
+  </data>
+  <data name="A_CertESC5NTAuth_TechnicalExplanation" xml:space="preserve">
+    <value>The NTAuthCertificates object (CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,...) contains the list of CA certificates that Windows trusts for smart card logon and PKINIT (Kerberos certificate authentication). A principal with WriteDACL, WriteOwner, GenericWrite, or GenericAll on this object can add any CA certificate to the enterprise trust store. Combined with a rogue CA, the attacker can issue authentication certificates for any user (including Domain Admins) that will be accepted by domain-joined systems for logon, without requiring any compromise of the legitimate PKI infrastructure. This is part of the ESC5 attack class described in Certified Pre-Owned (SpecterOps).</value>
+  </data>
+  <data name="A_CertESC5NTAuth_Solution" xml:space="preserve">
+    <value>Remove unnecessary write permissions from the NTAuthCertificates AD object. Only Domain Admins and Enterprise Admins should have write access. Use Get-Acl on the AD path CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration,... to audit current permissions, then remove any non-administrative write rights. Consider enabling Protected Users security group membership for administrative accounts to limit PKINIT abuse.</value>
+  </data>
+  <data name="A_CertESC5NTAuth_Rationale" xml:space="preserve">
+    <value>{count} low-privileged principal(s) can write to the NTAuthCertificates trust store (ESC5)</value>
+  </data>
+  <data name="A_CertESC5NTAuth_Detail" xml:space="preserve">
+    <value>Principal: {0}</value>
+  </data>
+  <data name="A_CertESC5NTAuth_ReportLocation" xml:space="preserve">
+    <value>See the PKI section of the report for NTAuthCertificates details</value>
+  </data>
+
 </root>
