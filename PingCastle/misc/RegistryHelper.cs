@@ -45,9 +45,8 @@ namespace PingCastle.misc
             }
             catch (SecurityException e)
             {
-                var msg = $"Could not access the '{keyValueName}' registry value: {e.Message}";
-                Trace.WriteLine(msg);
-                ui.DisplayMessage(msg);
+                // Access denied is expected when not running in privileged mode — trace only, no console output
+                Trace.WriteLine($"Could not access the '{keyValueName}' registry value: {e.Message}");
                 return false;
             }
 
@@ -90,9 +89,8 @@ namespace PingCastle.misc
             }
             catch (SecurityException e)
             {
-                var msg = $"Could not access the '{keyValueName}' registry value: {e.Message}";
-                Trace.WriteLine(msg);
-                ui.DisplayMessage(msg);
+                // Access denied is expected when not running in privileged mode — trace only, no console output
+                Trace.WriteLine($"Could not access the '{keyValueName}' registry value: {e.Message}");
                 return false;
             }
 
