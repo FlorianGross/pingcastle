@@ -4141,7 +4141,7 @@ If the script is detected, Windows 7 is considered as supported and this rule is
     <value>Check if LAPS passwords can be retrieved from computers that have been added manually by users.</value>
   </data>
   <data name="A_CertTempAnyone_Description" xml:space="preserve">
-    <value>The purpose of this rule is to ensure that there is no certificate template that can be edited by anyone</value>
+    <value>One or more certificate templates grant write permissions (WriteOwner, WriteDacl, WriteProperty, or GenericWrite) to low-privileged principals such as Domain Users, Domain Computers, Everyone, or Authenticated Users. An attacker can exploit this to modify the template and introduce ESC1/ESC2 conditions on-demand, then request an authentication certificate as any user (ESC4).</value>
   </data>
   <data name="A_CertTempAnyone_Detail" xml:space="preserve">
     <value>Name: {0}</value>
@@ -4151,7 +4151,7 @@ If the script is detected, Windows 7 is considered as supported and this rule is
 https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-active-directory-environment/</value>
   </data>
   <data name="A_CertTempAnyone_Rationale" xml:space="preserve">
-    <value>At least one certificate template can be modified by everyone [{count}]</value>
+    <value>{count} certificate template(s) can be modified by low-privileged users, enabling on-demand privilege escalation (ESC4)</value>
   </data>
   <data name="A_CertTempAnyone_ReportLocation" xml:space="preserve">
     <value>The detail can be found in &lt;a href="#certificatetemplates"&gt;Certificate Templates&lt;/a&gt;</value>
@@ -4161,15 +4161,12 @@ https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-a
     </value>
   </data>
   <data name="A_CertTempAnyone_TechnicalExplanation" xml:space="preserve">
-    <value>A certificate template is an object whose definition serves as a base to issue certificates.
-    If a user has the right to edit it, it can manually change obscure attributes such as msPKI-Certificate-Name-Flag.
-    Doing so will enable him to provide the subject of the certificate and thus having a certificate on behalf other users such as admins.
-  It can be used to impersonate them and take control of the domain.
-  
-Note: the program regards the group "Domain Computers" like "Everyone" if ms-DS-MachineAccountQuota is non zero.</value>
+    <value>Certificate templates are AD objects. Write access (WriteOwner, WriteDacl, WriteProperty, or GenericWrite) allows an attacker to modify security-relevant attributes: msPKI-Certificate-Name-Flag (enable ENROLLEE_SUPPLIES_SUBJECT for ESC1), msPKI-Enrollment-Flag (disable manager approval), pKIExtendedKeyUsage (add Client Authentication EKU). The attack flow is: (1) attacker finds a writable template, (2) enables subject supply and removes approval requirements, (3) requests a certificate as Domain Admin, (4) uses the certificate for Kerberos PKINIT / Pass-the-Cert. After exploitation the original template attributes can be restored to hide evidence. Reference: ESC4 (SpecterOps, Certified Pre-Owned).
+
+Note: the program regards the group "Domain Computers" like "Everyone" if ms-DS-MachineAccountQuota is non-zero.</value>
   </data>
   <data name="A_CertTempAnyone_Title" xml:space="preserve">
-    <value>Check if certificate templates can be edited by everyone.</value>
+    <value>Certificate Template Writable by Low-Privileged Users (ESC4)</value>
   </data>
   <data name="A_CertTempAnyPurpose_Description" xml:space="preserve">
     <value>This check verifies whether certificate templates in Active Directory Certificate Services (AD CS) have the "Any Purpose" Enhanced Key Usage (EKU) or lack an EKU entirely, potentially enabling privilege escalation or misuse.</value>
@@ -4182,7 +4179,7 @@ Note: the program regards the group "Domain Computers" like "Everyone" if ms-DS-
 https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-active-directory-environment/</value>
   </data>
   <data name="A_CertTempAnyPurpose_Rationale" xml:space="preserve">
-    <value>At least one certificate template can be requested by everyone having any purpose [{count}]</value>
+    <value>{count} certificate template(s) with Any Purpose EKU or no EKU are enrollable by low-privileged users with no approval, enabling privilege escalation (ESC2)</value>
   </data>
   <data name="A_CertTempAnyPurpose_ReportLocation" xml:space="preserve">
     <value>The detail can be found in &lt;a href="#certificatetemplates"&gt;Certificate Templates&lt;/a&gt;</value>
@@ -4214,7 +4211,7 @@ https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-a
     <value>Check for ESC2: Vulnerable EKU Configurations in Certificate Templates</value>
   </data>
   <data name="A_CertTempAgent_Description" xml:space="preserve">
-    <value>The purpose of this rule is to ensure that there is no agent certificate that can be requested by anyone</value>
+    <value>One or more enrollment agent certificate templates (EKU: Certificate Request Agent / 1.3.6.1.4.1.311.20.2.1) can be requested by low-privileged users without manager approval. An enrollment agent certificate allows its holder to request certificates on behalf of other users, enabling impersonation of any domain account (ESC3).</value>
   </data>
   <data name="A_CertTempAgent_Detail" xml:space="preserve">
     <value>Name: {0}</value>
@@ -4224,21 +4221,19 @@ https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-a
 https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-active-directory-environment/</value>
   </data>
   <data name="A_CertTempAgent_Rationale" xml:space="preserve">
-    <value>At least one certificate template can be used to issue agent certificate to everyone [{count}]</value>
+    <value>{count} enrollment agent certificate template(s) can be requested by low-privileged users, enabling impersonation of any domain account (ESC3)</value>
   </data>
   <data name="A_CertTempAgent_ReportLocation" xml:space="preserve">
     <value>The detail can be found in &lt;a href="#certificatetemplates"&gt;Certificate Templates&lt;/a&gt;</value>
   </data>
   <data name="A_CertTempAgent_Solution" xml:space="preserve">
-    <value>Review the permissions that allow a wide enrollment of this certificate template
-    </value>
+    <value>Restrict enrollment on enrollment agent templates to dedicated service accounts that legitimately require this capability (e.g. specific helpdesk accounts). Remove enrollment rights for Domain Users, Authenticated Users, Everyone, or Domain Computers. Additionally, configure the CA's Enrollment Agents restriction (certsrv.msc → CA → Properties → Enrollment Agents) to limit which enrollment agent certificates can request certificates on behalf of which users and from which templates. Monitor certificate issuance events (Windows event ID 4886/4887) for enrollment agent requests.</value>
   </data>
   <data name="A_CertTempAgent_TechnicalExplanation" xml:space="preserve">
-    <value>An Agent certificate is a special certificate used to request certificates on behalf of other users.
-    A template has been detected with the agent EKU and that can be enrolled by a large number of users.</value>
+    <value>The Certificate Request Agent EKU (OID 1.3.6.1.4.1.311.20.2.1) designates a certificate as an enrollment agent. The holder of such a certificate can submit certificate requests on behalf of other users via the PKCS#10 request format, provided the target CA and template permit enrollment agent enrollment (msPKI-RA-Signature = 0 on the target template). ESC3 attack flow: (1) obtain an enrollment agent certificate from the vulnerable template; (2) use it to request a certificate for a domain admin from any template that allows enrollment agent requests; (3) authenticate as the domain admin with the resulting certificate via Kerberos PKINIT. The attack does not require any modification to AD objects and leaves minimal traces. Reference: ESC3 (SpecterOps, Certified Pre-Owned).</value>
   </data>
   <data name="A_CertTempAgent_Title" xml:space="preserve">
-    <value>Check the permission of agent certificate templates</value>
+    <value>Enrollment Agent Certificate Template Accessible to Low-Privileged Users (ESC3)</value>
   </data>
   <data name="A_CertTempCustomSubject_Description" xml:space="preserve">
     <value>This check verifies if certificate templates in Active Directory Certificate Services (AD CS) allow user-controlled subject information and meet other common criteria associated with the ESC1 vulnerability.</value>
@@ -4250,7 +4245,7 @@ https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-a
     <value>Certified-PreOwned https://specterops.io/wp-content/uploads/sites/3/2022/06/Certified_Pre-Owned.pdf</value>
   </data>
   <data name="A_CertTempCustomSubject_Rationale" xml:space="preserve">
-    <value>At least one certificate template used for authentication can have its subject modified when being used [{count}]</value>
+    <value>{count} authentication certificate template(s) allow enrollee-supplied subject names and are accessible to low-privileged users with no approval, enabling impersonation of any domain account (ESC1)</value>
   </data>
   <data name="A_CertTempCustomSubject_ReportLocation" xml:space="preserve">
     <value>The detail can be found in &lt;a href="#certificatetemplates"&gt;Certificate Templates&lt;/a&gt;</value>
@@ -4959,7 +4954,7 @@ https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/decrypti
     <value>Check if AES is enabled on trusts</value>
   </data>
   <data name="A_CertTempNoSecurity_Description" xml:space="preserve">
-    <value>The purpose of this rule is to ensure that no certificate request templates allow users to control the subject</value>
+    <value>One or more authentication certificate templates have the CT_FLAG_NO_SECURITY_EXTENSION flag set (msPKI-Enrollment-Flag bit 0x80000). This prevents the CA from embedding the requester's SID in the issued certificate, which removes the protection against CVE-2022-26923 (Certifried) — a vulnerability allowing a low-privileged user to obtain a Domain Controller certificate by manipulating the dnsHostName attribute of a computer account.</value>
   </data>
   <data name="A_CertTempNoSecurity_Detail" xml:space="preserve">
     <value>Name: {0}</value>
@@ -4969,7 +4964,7 @@ https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/decrypti
 https://msrc.microsoft.com/update-guide/vulnerability/CVE-2022-26931</value>
   </data>
   <data name="A_CertTempNoSecurity_Rationale" xml:space="preserve">
-    <value>At least one certificate template has the flag CT_FLAG_NO_SECURITY_EXTENSION set</value>
+    <value>{count} authentication certificate template(s) have CT_FLAG_NO_SECURITY_EXTENSION set, removing protection against CVE-2022-26923 (Certifried)</value>
   </data>
   <data name="A_CertTempNoSecurity_ReportLocation" xml:space="preserve">
     <value>The detail can be found in &lt;a href="#certificatetemplates"&gt;Certificate Templates&lt;/a&gt;</value>
@@ -4980,13 +4975,10 @@ https://msrc.microsoft.com/update-guide/vulnerability/CVE-2022-26931</value>
     </value>
   </data>
   <data name="A_CertTempNoSecurity_TechnicalExplanation" xml:space="preserve">
-    <value>Certificate requests are tracked by UPN and dnsHost name for computers.
-    Usually, editing dnsHost change the value of the attribute servicePrincipalName and duplications are prohibited.
-  But there is no constraint on the dnsHost attribute and a controlled change of this attribute (without changing the SPN) can lead to duplicates.
-An attacker can then change the DNS of a compromise host to the DC DNS and request a certificate on behalf the DC, thus impersonating it and controlling the domain.</value>
+    <value>The szOID_NTDS_CA_SECURITY_EXT extension (OID 1.3.6.1.4.1.311.25.2) was introduced by Microsoft (KB5014754) to embed the requester's objectSid in issued certificates, ensuring that even if certificate fields (UPN, dnsHostName) are spoofed, the SID-based mapping on the DC still identifies the true requester. When CT_FLAG_NO_SECURITY_EXTENSION (0x80000) is set in msPKI-Enrollment-Flag, this SID extension is omitted. CVE-2022-26923 attack flow: (1) attacker with a computer account modifies the dnsHostName attribute to match a Domain Controller (no SPN collision check exists for dnsHostName alone); (2) requests a certificate using the machine template — the CA encodes the DC's hostname in the certificate subject; (3) uses the certificate for Kerberos PKINIT as the DC, gaining a TGT for the DC machine account; (4) performs a DCSync to extract all domain credentials. The vulnerability is mitigated when the SID extension is present, as the KDC uses the embedded SID for strong certificate binding. References: CVE-2022-26923, KB5014754, Oliver Lyak (IFCR) research.</value>
   </data>
   <data name="A_CertTempNoSecurity_Title" xml:space="preserve">
-    <value>Check if authentication certificate templates disallow the tracking of the certificate requester</value>
+    <value>Authentication Certificate Template Missing Security Extension (CVE-2022-26923 / Certifried)</value>
   </data>
   <data name="A_DC_WebClient_Title" xml:space="preserve">
     <value>Ensure that the WebClient client cannot be abused to force a DC connection to a HTTP server</value>
@@ -6139,6 +6131,29 @@ The detection triggers when specific high-risk permissions are assigned to OUs w
     <value>CA: {0} on host: {1} - Expiry: {2} ({3})</value>
   </data>
   <data name="A_CertCAExpiry_ReportLocation" xml:space="preserve">
+    <value>See the Certificate Authorities table in the PKI section of the report</value>
+  </data>
+
+  <!-- A-CertCAManageCA: ESC7 – Low-privileged principal holds ManageCA right on CA -->
+  <data name="A_CertCAManageCA_Title" xml:space="preserve">
+    <value>Low-Privileged User Has ManageCA Right on Certificate Authority (ESC7)</value>
+  </data>
+  <data name="A_CertCAManageCA_Description" xml:space="preserve">
+    <value>One or more Certificate Authorities grant the ManageCA right to a low-privileged principal. This right allows changing CA-wide settings, including enabling the EDITF_ATTRIBUTESUBJECTALTNAME2 flag or approving pending certificate requests, which can be used to escalate to domain compromise.</value>
+  </data>
+  <data name="A_CertCAManageCA_TechnicalExplanation" xml:space="preserve">
+    <value>The ManageCA permission (also called CA Administrator) is granted via the CA's security descriptor. A principal with ManageCA can: (1) Enable EDITF_ATTRIBUTESUBJECTALTNAME2, which allows any certificate request to include an attacker-controlled Subject Alternative Name — combining ESC7 with ESC6 to impersonate any user including Domain Admins; (2) Approve pending certificate requests submitted by any user, turning the CA into an on-demand issuer for arbitrary authentication certificates; (3) Change other CA settings such as extending certificate validity or adding templates. Reference: ESC7 (SpecterOps, Certified Pre-Owned).</value>
+  </data>
+  <data name="A_CertCAManageCA_Solution" xml:space="preserve">
+    <value>Remove ManageCA rights from all accounts that do not require CA administration. CA management should be restricted to dedicated, highly-privileged CA admin accounts. Review using: certutil -config "CA\CAName" -getpolicy. Revoke the right via the CA Security tab in certsrv.msc. Implement a CA admin tiering model where CA admin accounts cannot log on to domain-joined workstations.</value>
+  </data>
+  <data name="A_CertCAManageCA_Rationale" xml:space="preserve">
+    <value>{count} CA(s) grant the ManageCA right to low-privileged principals, enabling CA settings takeover (ESC7)</value>
+  </data>
+  <data name="A_CertCAManageCA_Detail" xml:space="preserve">
+    <value>CA: {0} on host: {1} - Principal: {2}</value>
+  </data>
+  <data name="A_CertCAManageCA_ReportLocation" xml:space="preserve">
     <value>See the Certificate Authorities table in the PKI section of the report</value>
   </data>
 
