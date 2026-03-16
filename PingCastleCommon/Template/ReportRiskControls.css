@@ -88,3 +88,54 @@ svg {
     margin: 10px;
     padding: 20px;
 }
+
+/* ── Severity badges (accordion headers + summary table) ── */
+.badge-severity {
+    display: inline-block;
+    min-width: 72px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    vertical-align: middle;
+    text-align: center;
+    margin-right: 6px;
+}
+.severity-critical { background-color: #f12828; }
+.severity-high     { background-color: #ff6a00; }
+.severity-medium   { background-color: #c9a000; }
+.severity-info     { background-color: #00AAFF; }
+
+/* ── Rule summary table ── */
+.rule-summary-wrapper {
+    margin-bottom: 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.rule-summary-table {
+    margin-bottom: 0;
+    font-size: 0.9rem;
+}
+.rule-summary-table thead th {
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.rule-summary-row {
+    cursor: pointer;
+}
+.rule-summary-row:hover td {
+    background-color: #f0f4ff;
+}
+.rule-summary-row td {
+    vertical-align: middle;
+}
+.rule-points {
+    font-weight: 700;
+    white-space: nowrap;
+}

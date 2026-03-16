@@ -273,6 +273,37 @@ namespace PingCastle.Report
             }
             if (hasRule)
             {
+                // ── Summary table ────────────────────────────────────────────
+                var summaryRules = new System.Collections.Generic.List<HealthcheckRiskRule>();
+                foreach (HealthcheckRiskRule r in rules)
+                    if (r.Category == category)
+                        summaryRules.Add(r);
+                summaryRules.Sort((a, b) => -a.Points.CompareTo(b.Points));
+
+                Add(@"<div class=""rule-summary-wrapper""><table class=""table table-sm table-hover rule-summary-table""><thead><tr><th>Severity</th><th>Rule ID</th><th>Finding</th><th class=""text-end"">Points</th></tr></thead><tbody>");
+                foreach (var r in summaryRules)
+                {
+                    string sid = "rules" + r.RiskId.Replace("$", "dollar");
+                    Add(@"<tr class=""rule-summary-row"" onclick=""var e=document.getElementById('");
+                    Add(sid);
+                    Add(@"');if(e){bootstrap.Collapse.getOrCreateInstance(e).show();var h=document.getElementById('heading");
+                    Add(sid);
+                    Add(@"');if(h){h.scrollIntoView({behavior:'smooth',block:'start'});}}""><td>");
+                    Add(GetSeverityBadgeHtml(r.Points));
+                    Add("</td><td><code>");
+                    AddEncoded(r.RiskId);
+                    Add("</code></td><td>");
+                    AddEncoded(r.Rationale);
+                    Add("</td><td class=\"text-end rule-points\">");
+                    if (r.Points == 0)
+                        Add("<span class=\"text-muted\">info</span>");
+                    else
+                        Add("+" + r.Points);
+                    Add("</td></tr>");
+                }
+                Add("</tbody></table></div>");
+                // ────────────────────────────────────────────────────────────
+
                 GenerateAccordion("rules" + category.ToString(), () =>
                     {
                         rules.Sort((HealthcheckRiskRule a, HealthcheckRiskRule b)
@@ -342,7 +373,8 @@ namespace PingCastle.Report
 
         protected void GenerateAccordionDetailForRule(string id, string dataParent, string title, HealthcheckRiskRule rule, RuleBase<HealthcheckData> hcrule, GenerateContentDelegate content)
         {
-            GenerateAccordionDetail(id, dataParent, title,
+            string badgedTitle = GetSeverityBadgeHtml(rule.Points) + title;
+            GenerateAccordionDetail(id, dataParent, badgedTitle,
                 () =>
                 {
                     if (rule.Points == 0)
@@ -410,6 +442,16 @@ namespace PingCastle.Report
             return tokens;
         }
               
+        private static string GetSeverityBadgeHtml(int points)
+        {
+            string cssClass, label;
+            if (points == 0)       { cssClass = "severity-info";     label = "Info";     }
+            else if (points <= 10) { cssClass = "severity-medium";   label = "Medium";   }
+            else if (points <= 20) { cssClass = "severity-high";     label = "High";     }
+            else                   { cssClass = "severity-critical";  label = "Critical"; }
+            return "<span class=\"badge-severity " + cssClass + "\">" + label + "</span>";
+        }
+
         private void AddExtendedDetailInfo(ExtraDetail detail)
         {
             if (detail?.DetailItems == null)
